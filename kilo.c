@@ -45,6 +45,7 @@
 // integers
 //
 enum editorKey {
+  BACKSPACE = 127,
   ARROW_LEFT = 1000,
   ARROW_RIGHT,
   ARROW_UP,
@@ -391,6 +392,10 @@ void editorProcessKeypress() {
   //
   switch (c) {
 
+      case '\r':
+      /* TODO */
+      break;
+
     // if ctrl+q pressed then break
     //
     case CTRL_KEY('q'):
@@ -405,6 +410,12 @@ void editorProcessKeypress() {
     case HOME_KEY:
       break;
     case END_KEY:
+      break;
+
+    case BACKSPACE:
+    case CTRL_KEY('h'):
+    case DEL_KEY:
+      /* TODO */
       break;
     // if page up or page down clicked
     // move the page up or down accordingly
@@ -445,6 +456,14 @@ void editorProcessKeypress() {
     case ARROW_LEFT:
     case ARROW_RIGHT:
       editorMoveCursor(c);
+      break;
+
+    case CTRL_KEY('l'):
+    case '\x1b':
+      break;
+
+    default:
+      editorInsertChar(c);
       break;
   }
 
@@ -1136,6 +1155,58 @@ void editorOpen(char* filename) {
   fclose(fp);
   
 }
+
+void editorRowInsertChar(erow *row, int at, int c) {
+
+  // checks for line ending and beginnings
+  // and compensates by putting the cursor at
+  // the end of the row
+  //
+  if (at < 0 || at > row->size) {
+    at = row->size;
+  }
+
+  // allocate room for the inserted character
+  //
+  row->chars = realloc(row->chars, row->size + 2);
+
+  // copy the string of all the characters before with an extra gap
+  //
+  memmove(&row->chars[at + 1], &row->chars[at], row->size - at + 1);
+
+  // increase the size of the row
+  //
+  row->size++;
+
+  // set the spare gap to a character
+  //
+  row->chars[at] = c;
+
+  // update the row
+  //
+  editorUpdateRow(row);
+}
+
+void editorInsertChar(int c) {
+
+  // if at the end of the file
+  //
+  if (E.cy == E.numrows) {
+
+    // append a new blank row
+    //
+    editorAppendRow("", 0);
+  }
+
+  // insert a character into the row
+  //
+  editorRowInsertChar(&E.row[E.cy], E.cx, c);
+
+  // increase cursor position by 1
+  //
+  E.cx++;
+}
+
 
 int main(int argc, char *argv[]) {
 
