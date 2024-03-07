@@ -115,7 +115,59 @@ struct abuf {
 };
 
 /* Prototypes */
+
+// changing terminal mode
+//
+void enableRawMode();
+void disableRawMode();
+
+// error handling
+//
+void die(const char *s);
+
+// set bottom bar information
+//
 void editorSetStatusMessage(const char *fmt, ...);
+void editorDrawStatusBar(struct abuf *ab);
+void editorDrawRows(struct abuf *ab);
+void editorDrawMessageBar(struct abuf *ab);
+
+// append buffer
+//
+void abAppend(struct abuf *ab, const char *s, int len);
+void abFree(struct abuf *ab);
+
+// text actions
+//
+void editorUpdateRow(erow *row);
+void editorAppendRow(char *s, size_t len);
+void editorRowInsertChar(erow *row, int at, int c);
+void editorInsertChar(int c);
+int editorRowCxToRx(erow *row, int cx); // sets absolute tab spacing
+
+// cursor actions
+//
+int getCursorPosition(int *rows, int *cols);
+void editorMoveCursor(int key);
+
+// editor initalization and file handling
+//
+void initEditor();
+void editorOpen(char* filename);
+void editorSave();
+char *editorRowsToString(int *buflen);
+
+// kepypress actions
+//
+int editorReadKey();
+void editorProcessKeypress();
+
+// viewing terminal actions
+//
+void editorScroll();
+int getWindowSize(int *rows, int *cols);
+void editorRefreshScreen();
+
 /* Functions */
 
 // Error handling
@@ -793,13 +845,13 @@ void editorDrawStatusBar(struct abuf *ab) {
   // get how many characters would be needed to print the message
   // and load it into the character array
   //
-  int len = snprintf(status, sizeof(status), "%.20s - %d lines", E.filename ? E.filename : "[No Name]", E.numrows);
-  
+  int len = snprintf(status, sizeof(status), "%.20s - %d lines %s", E.filename ? E.filename : "[No Name]", E.numrows, E.dirty ? "(modified)" : "");
+
   // get how manay characters would be needed and write the message
   // into the character array
   //
-  int rlen = snprintf(rstatus, sizeof(rstatus), "%d/%d", E.cy + 1, E.numrows, E.dirty ? "(modified)" : "");
-  
+  int rlen = snprintf(rstatus, sizeof(rstatus), "%d/%d", E.cy + 1, E.numrows);
+
   // compensate if message is longer than screen length
   //
   if (len > E.screencols) {
@@ -840,6 +892,7 @@ void editorDrawMessageBar(struct abuf *ab) {
   abAppend(ab, "\x1b[K", 3);
 
   // find the length of the status message
+  //
   int msglen = strlen(E.statusmsg);
 
   // if it is longer than the screen
@@ -1031,16 +1084,6 @@ int getWindowSize(int *rows, int *cols) {
 
 void editorRefreshScreen() {
   
-  /*Freestyling*/
-
-  // if (getWindowSize(&E.screenrows, &E.screencols) == -1){
-  //   die("getWindowSize");
-  // }
-
-  // E.screenrows-=2;
-
-  /*Freestyling*/
-
   // scroll to keep the cursor within the
   // visible window
   //
