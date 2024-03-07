@@ -1,4 +1,4 @@
-/*** Next step is step 105 ***/
+/*** Next step is step 116 ***/
 
 // feature test macros
 // this is essentially adding all the 
@@ -22,6 +22,7 @@
 #include <sys/types.h>
 #include <time.h>
 #include <stdarg.h>
+#include <fcntl.h>
 
 /* Definitions */
 
@@ -40,6 +41,11 @@
 // tab size
 //
 #define KILO_TAB_STOP 8
+
+// number of times we have to click quit if there are
+// pending modifications
+//
+#define KILO_QUIT_TIMES 3
 
 // constants for the arrow keys mapped to
 // integers
@@ -79,6 +85,7 @@ typedef struct erow {
 // filename is a character array with the name of the file
 // statusmessage is a character array with some info on the file
 // statusmsg_time is how long the message has been up
+// dirty is a integer to keep track of if the file has been edited
 //
 struct editorConfig {
   int cx,cy;
@@ -93,7 +100,8 @@ struct editorConfig {
   char *filename;
   char statusmsg[80];
   time_t statusmsg_time;
-};
+  int dirty;
+};  
 
 // initialize the editor config
 //
@@ -106,6 +114,8 @@ struct abuf {
   int len;
 };
 
+/* Prototypes */
+void editorSetStatusMessage(const char *fmt, ...);
 /* Functions */
 
 // Error handling
@@ -382,7 +392,170 @@ void editorMoveCursor(int key) {
   }
 }
 
+void editorUpdateRow(erow *row) {
+
+  // integer to keep count for number
+  // of tabs
+  //
+  int tabs = 0;
+
+  // index integer
+  //
+  int j;
+
+  // iterate through rows and count the number
+  // of tabs
+  //
+  for (j = 0; j < row->size; j++)
+    if (row->chars[j] == '\t') tabs++;
+
+  // release the memory from the previous render
+  //
+  free(row->render);
+  
+  // allocate memory the size of the row render
+  // plus the number of tabs
+  //
+  row->render = malloc(row->size + tabs*(KILO_TAB_STOP - 1) + 1);
+
+  // external integer with different scope
+  //
+  int idx = 0;
+
+  // iterate through the row
+  //
+  for (j = 0; j < row->size; j++) {
+
+    // If it is a tab
+    //
+    if (row->chars[j] == '\t') {
+
+      // add spaces up to 8
+      //
+      row->render[idx++] = ' ';
+      while (idx % KILO_TAB_STOP != 0) row->render[idx++] = ' ';
+
+    } 
+    else {
+
+      // increase the render size
+      // and set it equal to the character
+      //
+      row->render[idx++] = row->chars[j];
+    }
+  }
+
+  // set the null terminating character
+  // at the end of the row
+  // and change the size of the render
+  //
+  row->render[idx] = '\0';
+  row->rsize = idx;
+}
+
+void editorAppendRow(char *s, size_t len) {
+  
+  // allocate memory to the correct size of rows
+  //
+  E.row = realloc(E.row, sizeof(erow) * (E.numrows + 1));
+
+  // find the last row
+  //
+  int at = E.numrows;
+
+  // set the size of the row to the length of the string
+  //
+  E.row[at].size = len;
+
+  // allocate memory while compensating for the null
+  // terminating characer
+  //
+  E.row[at].chars = malloc(len + 1);
+
+  // copy the string into the row
+  //
+  memcpy(E.row[at].chars, s, len);
+
+  // set the last character to a null terminating character
+  E.row[at].chars[len] = '\0';
+
+  // set render information
+  //
+  E.row[at].rsize = 0;
+  E.row[at].render = NULL;
+  editorUpdateRow(&E.row[at]);
+  
+  // set the number of rows to 0
+  //
+  E.numrows++;
+
+  // modification tracking
+  //
+  E.dirty++;
+}
+
+void editorRowInsertChar(erow *row, int at, int c) {
+
+  // checks for line ending and beginnings
+  // and compensates by putting the cursor at
+  // the end of the row
+  //
+  if (at < 0 || at > row->size) {
+    at = row->size;
+  }
+
+  // allocate room for the inserted character
+  //
+  row->chars = realloc(row->chars, row->size + 2);
+
+  // copy the string of all the characters before with an extra gap
+  //
+  memmove(&row->chars[at + 1], &row->chars[at], row->size - at + 1);
+
+  // increase the size of the row
+  //
+  row->size++;
+
+  // set the spare gap to a character
+  //
+  row->chars[at] = c;
+
+  // update the row
+  //
+  editorUpdateRow(row);
+
+
+  // modification tracking
+  //
+  E.dirty++;
+}
+
+void editorInsertChar(int c) {
+
+  // if at the end of the file
+  //
+  if (E.cy == E.numrows) {
+
+    // append a new blank row
+    //
+    editorAppendRow("", 0);
+  }
+
+  // insert a character into the row
+  //
+  editorRowInsertChar(&E.row[E.cy], E.cx, c);
+
+  // increase cursor position by 1
+  //
+  E.cx++;
+}
+
 void editorProcessKeypress() {
+
+  // number of times it takes to quit without
+  // saving
+  //
+  static int quit_times = KILO_QUIT_TIMES;
 
   // read a single byte
   //
@@ -400,6 +573,20 @@ void editorProcessKeypress() {
     //
     case CTRL_KEY('q'):
       
+      // check to see if the file is modified and if quit times is zero
+      //
+       if (E.dirty && quit_times > 0) {
+
+        // warn the user about unsaved changes
+        //
+        editorSetStatusMessage("WARNING!!! File has unsaved changes. Press Ctrl-Q %d more times to quit.", quit_times);
+
+        // track the amount of times the quit button has been clicked
+        //
+        quit_times--;
+        return;
+      }
+
       // clear the screen and exit the program
       //
       write(STDOUT_FILENO, "\x1b[2J", 4);
@@ -416,6 +603,10 @@ void editorProcessKeypress() {
     case CTRL_KEY('h'):
     case DEL_KEY:
       /* TODO */
+      break;
+
+    case CTRL_KEY('s'):
+      editorSave();
       break;
     // if page up or page down clicked
     // move the page up or down accordingly
@@ -467,6 +658,9 @@ void editorProcessKeypress() {
       break;
   }
 
+// reset quit times number
+//
+quit_times = KILO_QUIT_TIMES;
 }
 
 
@@ -604,7 +798,7 @@ void editorDrawStatusBar(struct abuf *ab) {
   // get how manay characters would be needed and write the message
   // into the character array
   //
-  int rlen = snprintf(rstatus, sizeof(rstatus), "%d/%d", E.cy + 1, E.numrows);
+  int rlen = snprintf(rstatus, sizeof(rstatus), "%d/%d", E.cy + 1, E.numrows, E.dirty ? "(modified)" : "");
   
   // compensate if message is longer than screen length
   //
@@ -966,6 +1160,10 @@ void initEditor() {
   // set the array of rows to a null
   //
   E.row = NULL;
+  
+  // set the file's default to unedited
+  //
+  E.dirty = 0;
 
   // sett the filename character array to a null
   //
@@ -991,103 +1189,9 @@ void initEditor() {
 
 }
 
-void editorUpdateRow(erow *row) {
 
-  // integer to keep count for number
-  // of tabs
-  //
-  int tabs = 0;
 
-  // index integer
-  //
-  int j;
 
-  // iterate through rows and count the number
-  // of tabs
-  //
-  for (j = 0; j < row->size; j++)
-    if (row->chars[j] == '\t') tabs++;
-
-  // release the memory from the previous render
-  //
-  free(row->render);
-  
-  // allocate memory the size of the row render
-  // plus the number of tabs
-  //
-  row->render = malloc(row->size + tabs*(KILO_TAB_STOP - 1) + 1);
-
-  // external integer with different scope
-  //
-  int idx = 0;
-
-  // iterate through the row
-  //
-  for (j = 0; j < row->size; j++) {
-
-    // If it is a tab
-    //
-    if (row->chars[j] == '\t') {
-
-      // add spaces up to 8
-      //
-      row->render[idx++] = ' ';
-      while (idx % KILO_TAB_STOP != 0) row->render[idx++] = ' ';
-
-    } 
-    else {
-
-      // increase the render size
-      // and set it equal to the character
-      //
-      row->render[idx++] = row->chars[j];
-    }
-  }
-
-  // set the null terminating character
-  // at the end of the row
-  // and change the size of the render
-  //
-  row->render[idx] = '\0';
-  row->rsize = idx;
-}
-
-void editorAppendRow(char *s, size_t len) {
-  
-  // allocate memory to the correct size of rows
-  //
-  E.row = realloc(E.row, sizeof(erow) * (E.numrows + 1));
-
-  // find the last row
-  //
-  int at = E.numrows;
-
-  // set the size of the row to the length of the string
-  //
-  E.row[at].size = len;
-
-  // allocate memory while compensating for the null
-  // terminating characer
-  //
-  E.row[at].chars = malloc(len + 1);
-
-  // copy the string into the row
-  //
-  memcpy(E.row[at].chars, s, len);
-
-  // set the last character to a null terminating character
-  E.row[at].chars[len] = '\0';
-
-  // set render information
-  //
-  E.row[at].rsize = 0;
-  E.row[at].render = NULL;
-  editorUpdateRow(&E.row[at]);
-  
-  // set the number of rows to 0
-  //
-  E.numrows++;
-}
 
 // takes a file as an input parameter
 //
@@ -1153,60 +1257,121 @@ void editorOpen(char* filename) {
   //
   free(line);
   fclose(fp);
+
+  // reset the modification counter
+  //
+  E.dirty = 0;
   
 }
 
-void editorRowInsertChar(erow *row, int at, int c) {
 
-  // checks for line ending and beginnings
-  // and compensates by putting the cursor at
-  // the end of the row
+
+
+
+char *editorRowsToString(int *buflen) {
+
+  // total length of the string
   //
-  if (at < 0 || at > row->size) {
-    at = row->size;
-  }
+  int totlen = 0;
 
-  // allocate room for the inserted character
+  // index integer
   //
-  row->chars = realloc(row->chars, row->size + 2);
+  int j;
+  for (j = 0; j < E.numrows; j++)
 
-  // copy the string of all the characters before with an extra gap
-  //
-  memmove(&row->chars[at + 1], &row->chars[at], row->size - at + 1);
-
-  // increase the size of the row
-  //
-  row->size++;
-
-  // set the spare gap to a character
-  //
-  row->chars[at] = c;
-
-  // update the row
-  //
-  editorUpdateRow(row);
-}
-
-void editorInsertChar(int c) {
-
-  // if at the end of the file
-  //
-  if (E.cy == E.numrows) {
-
-    // append a new blank row
+    // set the total length to the size of the row + 
+    // the new line character
     //
-    editorAppendRow("", 0);
+    totlen += E.row[j].size + 1;
+
+  // set the length to include the new line character
+  //
+  *buflen = totlen;
+
+  // allocate memory equal to the length of the desired string
+  //
+  char *buf = malloc(totlen);
+
+  // declare pointer to the return string
+  //
+  char *p = buf;
+
+  // iterate through each row
+  //
+  for (j = 0; j < E.numrows; j++) {
+
+    // copy the row into the poitner
+    //
+    memcpy(p, E.row[j].chars, E.row[j].size);
+
+    // set the pointer to the end of the string
+    //
+    p += E.row[j].size;
+
+    // add a new line character to the end of the string and iterate past
+    //
+    *p = '\n';
+    p++;
   }
 
-  // insert a character into the row
+  // return the pointer to the beginning of the string
   //
-  editorRowInsertChar(&E.row[E.cy], E.cx, c);
-
-  // increase cursor position by 1
-  //
-  E.cx++;
+  return buf;
 }
 
+void editorSave() {
+
+  // if there is no filename break
+  //
+  if (E.filename == NULL) {
+    return;
+  }
+
+  // integer for keeping track of the length of the file
+  //
+  int len;
+
+  // get the pointer to the beginning of the string
+  //
+  char *buf = editorRowsToString(&len);
+
+  // O_RDWR = open for reading and writing
+  // O_CREAT = create a file if it doesn't exist 
+  // 0644 is the standard permissions to save files
+  //
+  int fd = open(E.filename, O_RDWR | O_CREAT, 0644);
+  if (fd != -1) {
+
+    // sets file size
+    //
+    if (ftruncate(fd, len) != -1) {
+
+      // writes to the file
+      //
+      if (write(fd, buf, len) == len) {  
+  
+        // closes the file
+        //
+        close(fd);
+
+        // frees the memory storing the string
+        //
+        free(buf);
+        
+        // reset modification counter
+        // and set saved messaged
+        //
+        E.dirty = 0;
+        editorSetStatusMessage("%d bytes written to disk", len);
+
+        return;
+      }
+    }
+    close(fd);
+  }
+  free(buf);
+  editorSetStatusMessage("Can't save! I/O error: %s", strerror(errno));
+}
 
 int main(int argc, char *argv[]) {
 
@@ -1226,7 +1391,7 @@ int main(int argc, char *argv[]) {
 
   // set initial status message
   //
-  editorSetStatusMessage("HELP: Ctrl-Q = quit");
+  editorSetStatusMessage("HELP: Ctrl-S = save | Ctrl-Q = quit");
 
   // infinite loop
   //
