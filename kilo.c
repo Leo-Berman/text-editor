@@ -151,12 +151,15 @@ void editorDelRow(int at);
 void editorRowDelChar(erow *row, int at);
 void editorDelChar();
 void editorInsertNewline();
+void editorDeleteRight();
 
 // cursor actions
 //
 int getCursorPosition(int *rows, int *cols);
 void editorMoveCursor(int key);
 void editorFind();
+void editorMoveCursorBeginRow();
+void editorMoveCursorEndRow();
 
 // editor initalization and file handling
 //
@@ -942,6 +945,35 @@ void editorInsertNewline() {
   E.cx = 0;
 }
 
+void editorDeleteRight() {
+
+  // index the row
+  //
+  erow *row = &E.row[E.cy];
+
+  // Check if valid index size
+  //
+  if (E.cx < 0 || E.cx >= row->size) {
+    return;
+  }
+
+  // Perform the delete
+  //
+  memmove(&row->chars[E.cx], &row->chars[row->size], 1);
+
+  // Decrement Row Size
+  //
+  row->size-=row->size - E.cx-1;
+  
+  // update the row
+  //
+  editorUpdateRow(row);
+  
+  // increment modification coutner
+  //
+  E.dirty++;
+}
+
 /* End Text Actions */
 
 
@@ -1045,7 +1077,7 @@ void editorMoveCursor(int key) {
       }
       break;
     case ARROW_DOWN:
-      if (E.cy < E.numrows) {
+      if (E.cy < E.numrows-1) {
         E.cy++;
       }
       break;
@@ -1187,6 +1219,14 @@ void editorFind() {
 
 }
 
+void editorMoveCursorBeginRow() {
+  E.cx = 0;
+}
+
+void editorMoveCursorEndRow() {
+  erow *row = &E.row[E.cy];
+  E.cx = row->size;
+}
 /* End Cursor Actions*/
 
 
@@ -1670,6 +1710,18 @@ void editorProcessKeypress() {
       exit(0);
       break;  
     
+    case CTRL_KEY('a'):
+      editorMoveCursorBeginRow();
+      break;
+
+    case CTRL_KEY('e'):
+      editorMoveCursorEndRow();
+      break;
+
+    case CTRL_KEY('k'):
+      editorDeleteRight();
+      break;
+
     case HOME_KEY:
       break;
     case END_KEY:
