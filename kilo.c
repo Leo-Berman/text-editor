@@ -160,6 +160,8 @@ void editorMoveCursor(int key);
 void editorFind();
 void editorMoveCursorBeginRow();
 void editorMoveCursorEndRow();
+void editorMoveCursorEndWord();
+void editorMoveCursorBeginWord();
 
 // editor initalization and file handling
 //
@@ -953,7 +955,7 @@ void editorDeleteRight() {
 
   // Check if valid index size
   //
-  if (E.cx < 0 || E.cx >= row->size) {
+  if (E.cx < 0 || E.cx >= row->size || row->size == 0) {
     return;
   }
 
@@ -963,8 +965,12 @@ void editorDeleteRight() {
 
   // Decrement Row Size
   //
-  row->size-=row->size - E.cx-1;
+  row->size-=row->size - E.cx;
   
+  // set the cursor position
+  //
+  E.cx = row->size;
+
   // update the row
   //
   editorUpdateRow(row);
@@ -1227,6 +1233,29 @@ void editorMoveCursorEndRow() {
   erow *row = &E.row[E.cy];
   E.cx = row->size;
 }
+
+void editorMoveCursorEndWord() {
+
+  erow *row = &E.row[E.cy];
+  char* curr = row->render;
+  printf("%c",curr[E.cx]);
+
+  if (E.cx == 0) {
+    if (E.cy == 0) {
+      return;
+    }
+    else {
+      E.cy--;
+      row = &E.row[E.cy];
+      E.cx = row->size;
+    }
+  }
+  while (curr[E.cx]== " "){
+
+  }
+}
+void editorMoveCursorBeginWord();
+
 /* End Cursor Actions*/
 
 
@@ -1676,7 +1705,9 @@ void editorProcessKeypress() {
   // read a single byte
   //
   int c = editorReadKey();
+  int work;
 
+  // printf("%d ",c);
   // handle error checking
   //
   switch (c) {
@@ -1781,6 +1812,15 @@ void editorProcessKeypress() {
 
     case CTRL_KEY('l'):
     case '\x1b':
+      work = editorReadKey();
+
+      if (work == 53) {
+        work = editorReadKey();
+
+        if (work == 68) {
+          editorMoveCursorEndWord();
+        }
+      }
       break;
 
     case CTRL_KEY('f'):
