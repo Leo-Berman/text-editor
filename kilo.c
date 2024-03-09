@@ -1,4 +1,4 @@
-/*** Next step is step 142 ***/
+/*** Next step is step 150 ***/
 
 // feature test macros
 // this is essentially adding all the 
@@ -61,6 +61,13 @@ enum editorKey {
   END_KEY,
   PAGE_UP,
   PAGE_DOWN
+};
+
+// highlighter enumeration
+//
+enum editorHighlight {
+  HL_NORMAL = 0,
+  HL_NUMBER
 };
 
 // create a storage object for each row
@@ -153,6 +160,12 @@ void editorRowDelChar(erow *row, int at);
 void editorDelChar();
 void editorInsertNewline();
 void editorDeleteRight();
+
+// Syntax Actions
+//
+void editorUpdateSyntax(erow *row);
+int editorSyntaxToColor(int hl);
+
 
 // cursor actions
 //
@@ -448,6 +461,14 @@ void editorDrawRows(struct abuf *ab) {
       //
       char *c = &E.row[filerow].render[E.coloff];
 
+      // set a pointer to the syntax array
+      //
+      unsigned char *hl = &E.row[filerow].hl[E.coloff]; 
+
+      // keep track of current color
+      //
+      int current_color = -1;
+
       // index integer
       //
       int j;
@@ -456,21 +477,33 @@ void editorDrawRows(struct abuf *ab) {
       //
       for (j = 0; j < len; j++) {
 
-        // if it is a number, make it red
+        // if it is normal make it white
         //
-        if (isdigit(c[j])) {
-          abAppend(ab, "\x1b[31m", 5);
+        if (current_color != -1) {
+          if (hl[j] == HL_NORMAL) {
+            abAppend(ab, "\x1b[39m", 5);
+            current_color = -1;
+          }
           abAppend(ab, &c[j], 1);
-          abAppend(ab, "\x1b[39m", 5);
         } 
         
-        // otherwise make it normal
+        // otherwise make it the appropriate color
         //
         else {
-          abAppend(ab, &c[j], 1);
+          int color = editorSyntaxToColor(hl[j]);
+          if (color != current_color) {
+            current_color = color;
+            char buf[16];
+            int clen = snprintf(buf, sizeof(buf), "\x1b[%dm", color);
+            abAppend(ab, buf, clen);
+            abAppend(ab, &c[j], 1);
+          }
         }
-      }
-    
+      } 
+
+      // return to normal
+      //
+      abAppend(ab, "\x1b[39m", 5);
     }
 
     // deletes part of the line
@@ -639,6 +672,10 @@ void editorUpdateRow(erow *row) {
   //
   row->render[idx] = '\0';
   row->rsize = idx;
+
+  // update syntax highlighting
+  //
+  editorUpdateSyntax(row);
 }
 
 void editorInsertRow(int at, char *s, size_t len) {
@@ -1020,7 +1057,49 @@ void editorDeleteRight() {
 
 /* End Text Actions */
 
+/* Syntax Actions */
 
+
+void editorUpdateSyntax(erow *row) {
+
+  // allocate the appropriate amount of highlighting
+  // to the array
+  //
+  row->hl = realloc(row->hl, row->rsize);
+
+  // set the memory array to normal
+  //
+  memset(row->hl, HL_NORMAL, row->rsize);
+  
+  // iterate through the row
+  //
+  int i;
+  
+  // iterate through the row
+  //
+  for (i = 0; i < row->rsize; i++) {
+
+    // if it's a number
+    // change the array to number
+    //
+    if (isdigit(row->render[i])) {
+      row->hl[i] = HL_NUMBER;
+    }
+  }
+}
+
+int editorSyntaxToColor(int hl) {
+
+  // switch case with the numbers correlating
+  // to the appropriate colors
+  //
+  switch (hl) {
+    case HL_NUMBER: return 31;
+    default: return 37;
+  }
+}
+
+/* End Syntax Actions */
 
 /* Cursor Actions */
 
