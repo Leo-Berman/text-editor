@@ -70,6 +70,7 @@ typedef struct erow {
   int rsize;
   char *chars;
   char *render;
+  unsigned char *hl;
 }erow;
 
 // has 3 sets of flags for interfacing with io
@@ -442,10 +443,34 @@ void editorDrawRows(struct abuf *ab) {
       if (len > E.screencols) {
         len = E.screencols;
       }
-          
-      // write the row
+      
+      // set a pointer to the character array
       //
-      abAppend(ab, &E.row[filerow].render[E.coloff], len);
+      char *c = &E.row[filerow].render[E.coloff];
+
+      // index integer
+      //
+      int j;
+
+      // iterate through the row
+      //
+      for (j = 0; j < len; j++) {
+
+        // if it is a number, make it red
+        //
+        if (isdigit(c[j])) {
+          abAppend(ab, "\x1b[31m", 5);
+          abAppend(ab, &c[j], 1);
+          abAppend(ab, "\x1b[39m", 5);
+        } 
+        
+        // otherwise make it normal
+        //
+        else {
+          abAppend(ab, &c[j], 1);
+        }
+      }
+    
     }
 
     // deletes part of the line
@@ -650,9 +675,11 @@ void editorInsertRow(int at, char *s, size_t len) {
   E.row[at].chars[len] = '\0';
 
   // set render information
+  // and highlight information
   //
   E.row[at].rsize = 0;
   E.row[at].render = NULL;
+  E.row[at].hl = NULL;
   editorUpdateRow(&E.row[at]);
   
   // set the number of rows to 0
@@ -807,6 +834,7 @@ int editorRowRxToCx(erow *row, int rx) {
 void editorFreeRow(erow *row) {
   free(row->render);
   free(row->chars);
+  free(row->hl);
 }
 
 void editorDelRow(int at) {
