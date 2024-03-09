@@ -591,9 +591,11 @@ void editorUpdateRow(erow *row) {
   // iterate through row and count the number
   // of tabs
   //
-  for (j = 0; j < row->size; j++)
-    if (row->chars[j] == '\t') tabs++;
-
+  for (j = 0; j < row->size; j++) {
+    if (row->chars[j] == '\t') {
+      tabs++;
+    }
+  }
   // release the memory from the previous render
   //
   free(row->render);
@@ -618,8 +620,9 @@ void editorUpdateRow(erow *row) {
       // add spaces up to 8
       //
       row->render[idx++] = ' ';
-      while (idx % KILO_TAB_STOP != 0) row->render[idx++] = ' ';
-
+      while (idx % KILO_TAB_STOP != 0) {
+        row->render[idx++] = ' ';
+      }
     } 
     else {
 
@@ -1329,7 +1332,56 @@ void editorMoveCursorLeftWord() {
 }
 
 void editorMoveCursorRightWord() {
+  erow *row = &E.row[E.cy];
+  char* curr = row->chars;
 
+  if (E.cx == row->size) {
+    if (E.cy == E.numrows) {
+      return;
+    }
+    else {
+      E.cy++;
+      row = &E.row[E.cy];
+      E.cx = 0;
+      return;
+    }
+  }
+
+  if (curr[E.cx] == ' ' || curr[E.cx] == '\t') {
+    if (curr[E.cx+1] != ' ' && curr[E.cx+1] != '\t'){
+      E.cx++;
+    }
+    else {
+      while (curr[E.cx] == ' ' || curr[E.cx] == '\t') {
+        if (E.cx == row->size){
+          return;
+        }
+        E.cx++;
+      }
+      return;
+    }
+  }
+
+  if (curr[E.cx] != ' ' && curr[E.cx] != '\t') {
+    if (curr[E.cx+1] == ' ' || curr[E.cx+1] == '\t'){
+        while (curr[E.cx] == ' ' || curr[E.cx] == '\t') {
+          if (E.cx == row->size){
+            return;
+          }
+          E.cx++;
+        }
+        return;
+      }
+    else{
+      while (curr[E.cx] != ' ' && curr[E.cx] != '\t') {
+        if (E.cx == row->size) {
+          return;
+        }
+        E.cx++;
+      }
+      return;
+    }
+  }
 }
 
 /* End Cursor Actions*/
