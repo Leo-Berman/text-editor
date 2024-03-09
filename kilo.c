@@ -161,8 +161,8 @@ void editorMoveCursor(int key);
 void editorFind();
 void editorMoveCursorBeginRow();
 void editorMoveCursorEndRow();
-void editorMoveCursorEndWord();
-void editorMoveCursorBeginWord();
+void editorMoveCursorLeftWord();
+void editorMoveCursorRightWord();
 
 // editor initalization and file handling
 //
@@ -981,6 +981,13 @@ void editorDeleteRight() {
   //
   erow *row = &E.row[E.cy];
 
+  // check if empty row
+  //
+  if (row->size == 0) {
+    editorDelRow(E.cy);
+    return;
+  }
+
   // Check if valid index size
   //
   if (E.cx < 0 || E.cx >= row->size || row->size == 0) {
@@ -1262,11 +1269,10 @@ void editorMoveCursorEndRow() {
   E.cx = row->size;
 }
 
-void editorMoveCursorEndWord() {
+void editorMoveCursorLeftWord() {
 
   erow *row = &E.row[E.cy];
-  char* curr = row->render;
-  printf("%c",curr[E.cx]);
+  char* curr = row->chars;
 
   if (E.cx == 0) {
     if (E.cy == 0) {
@@ -1276,13 +1282,55 @@ void editorMoveCursorEndWord() {
       E.cy--;
       row = &E.row[E.cy];
       E.cx = row->size;
+      return;
     }
   }
-  while (curr[E.cx]== " "){
-
+  if (curr[E.cx] == ' ' || curr[E.cx] == '\t') {
+    if (curr[E.cx-1] != ' ' && curr[E.cx-1] != '\t'){
+      E.cx--;
+    }
+    else {
+      while (curr[E.cx] == ' ' || curr[E.cx] == '\t') {
+        if (E.cx == 0){
+          return;
+        }
+        E.cx--;
+      }
+      E.cx++;
+      return;
+    }
+  }
+  
+  if (curr[E.cx] != ' ' && curr[E.cx] != '\t') {
+    if (curr[E.cx-1] == ' ' || curr[E.cx-1] == '\t'){
+        while (curr[E.cx] == ' ' || curr[E.cx] == '\t') {
+          if (E.cx == 0){
+            return;
+          }
+          E.cx--;
+        }
+        if (E.cx == 0){
+            return;
+        }
+        E.cx--;
+        return;
+      }
+    else{
+      while (curr[E.cx] != ' ' && curr[E.cx] != '\t') {
+        if (E.cx == 0) {
+          return;
+        }
+        E.cx--;
+      }
+      E.cx++;
+      return;
+    }
   }
 }
-void editorMoveCursorBeginWord();
+
+void editorMoveCursorRightWord() {
+
+}
 
 /* End Cursor Actions*/
 
@@ -1846,7 +1894,10 @@ void editorProcessKeypress() {
         work = editorReadKey();
 
         if (work == 68) {
-          editorMoveCursorEndWord();
+          editorMoveCursorLeftWord();
+        }
+        else if (work == 67) {
+          editorMoveCursorRightWord();
         }
       }
       break;
