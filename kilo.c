@@ -23,6 +23,7 @@
 #include <time.h>
 #include <stdarg.h>
 #include <fcntl.h>
+#include <stdbool.h>
 
 /* Definitions */
 
@@ -67,7 +68,8 @@ enum editorKey {
 //
 enum editorHighlight {
   HL_NORMAL = 0,
-  HL_NUMBER
+  HL_NUMBER,
+  HL_MATCH
 };
 
 // create a storage object for each row
@@ -1048,7 +1050,7 @@ void editorDeleteRight() {
 
   // update the row
   //
-  editorUpdateRow(row);
+    editorUpdateRow(row);
   
   // increment modification coutner
   //
@@ -1095,6 +1097,7 @@ int editorSyntaxToColor(int hl) {
   //
   switch (hl) {
     case HL_NUMBER: return 31;
+    case HL_MATCH: return 34;
     default: return 37;
   }
 }
@@ -1224,93 +1227,94 @@ void editorMoveCursor(int key) {
 }
 
 void editorFindCallback(char *query, int key) {
+  
+  static char *match=NULL;
 
-  // set int that will track the last match
-  // and the direction the search is going
+  // direction to search
   //
-  static int last_match = -1;
-  static int direction = 1;
+  int direction = 1;
 
-  // if enter or escape return
+  // current line
   //
-  if (key == '\r' || key == '\x1b') {
+  int check_line = E.cy;
+  int i = check_line;
+  erow *row = &E.row[i];
+  
+  
 
+  if(match) {
+    editorUpdateRow(row);
+  }
+
+  //if enter or escape return
+  //
+  if (key == '\x1b') {
     // reset
     //
-    last_match = -1;
     direction = 1;
     return;
   }
-
   // set search forwards
   //
   else if (key == ARROW_DOWN) {
     direction = 1;
   } 
-
   // set search backwards
   //
   else if (key == ARROW_UP) {
     direction = -1;
-  } 
-  
-  // reset
-  //
+  }
   else {
-    last_match = -1;
-    direction = 1;
-  }
-  
-  // if this was the first instance always move forward
-  //
-  if (last_match == -1) {
-    direction = 1;
+    goto label;
   }
 
-  int current = last_match;
   
-  // index integer
-  //
-  int i;
   
-  // iterate through all the rows
-  //
-  for (i = 0; i < E.numrows; i++) {
-
-    // add a movement in the direction
-    //
-    current += direction;
-
-    // if current reaches before beginning
-    // go to the end of the file and vice versa
-    //
-    if (current == -1) {
-      current = E.numrows - 1;
+  if(match!=NULL && query && row->render) {
+    char *match2 = strstr(match+1,query);
+    if(match2 != NULL) {
+      E.cy = i;
+      E.cx = match2 - row->render;
+      E.cx =  editorRowRxToCx(row, E.cx);
+      match = match2;
+      check_line = i;
+      goto label;
     }
-    else if (current == E.numrows) {
-      current = 0;
+    i+=direction;
+  }
+
+  while(1) {
+    if(i >= E.numrows) {
+      i = 0;
+    }
+    if(i == -1) {
+      i = E.numrows - 1;
     }
 
-    // index the row
-    //
-    erow *row = &E.row[current];
-
-    // check if query is a substring of row
-    //
-    char *match = strstr(row->render, query);
-    
-    // if it is, set the cursor position and break
-    // out of the loop and track the last match
-    //
-    if (match) {
-      last_match = current;
-      E.cy = current;
+    row = &E.row[i];
+    if(query && row->render) {
+      match = strstr(row->render,query);
+    }
+    if(match) {
+      E.cy = i;
       E.cx = match - row->render;
-      E.rowoff = E.numrows;
-      break;
+      E.cx =  editorRowRxToCx(row, E.cx);
+      check_line = i;
+      goto label;
     }
+    i+=direction;
+    
+
+  }
+  label:
+  if(match!=NULL) {
+    memset(&row->hl[E.cx],HL_MATCH,strlen(query));
   }
 }
+
+  
+
+// }
 
 void editorFind() {
 
@@ -1330,7 +1334,7 @@ void editorFind() {
   if (query) {
     free(query);
   }
-  
+
   // if query is null then restore cursor position
   //
   else {
@@ -1653,7 +1657,7 @@ void editorSave() {
   editorSetStatusMessage("Can't save! I/O error: %s", strerror(errno));
 }
 
-char *editorRowsToString(int *buflen) {
+char *editorRowsToString (int *buflen) {
 
   // total length of the string
   //
