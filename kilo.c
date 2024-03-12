@@ -48,9 +48,10 @@
 //
 #define KILO_QUIT_TIMES 3
 
-// pretty much whether or not we enable highlighting numbers
+// flags to enable highlights
 //
 #define HL_HIGHLIGHT_NUMBERS (1<<0)
+#define HL_HIGHLIGHT_STRINGS (1<<1)
 
 // C filename extensions
 //
@@ -80,6 +81,8 @@ enum editorKey {
 //
 enum editorHighlight {
   HL_NORMAL = 0,
+  HL_COMMENT,
+  HL_STRING,
   HL_NUMBER,
   HL_MATCH
 };
@@ -144,6 +147,7 @@ struct abuf {
 struct editorSyntax {
   char *filetype;
   char **filematch;
+  char *singleline_comment_start;
   int flags;
 };
 
@@ -153,7 +157,8 @@ struct editorSyntax HLDB[] = {
   {
     "c",
     C_HL_extensions,
-    HL_HIGHLIGHT_NUMBERS
+    "//",
+    HL_HIGHLIGHT_NUMBERS | HL_HIGHLIGHT_STRINGS
   },
 };
 
@@ -1137,6 +1142,15 @@ void editorSelectSyntaxHighlight() {
         // set the correct syntax database
         //
         E.syntax = s;
+
+        // loop through the file rows and update the syntax for
+        // each row
+        //
+        int filerow;
+        for (filerow = 0; filerow < E.numrows; filerow++) {
+          editorUpdateSyntax(&E.row[filerow]);
+        }
+
         return;
       }
 
@@ -1171,10 +1185,22 @@ void editorUpdateSyntax(erow *row) {
    return;
   }
 
+  // keep track of single line comment start
+  //
+  char *scs = E.syntax->singleline_comment_start;
+
+  // length of single line comment
+  //
+  int scs_len = scs ? strlen(scs) : 0;
+
   // keep track of separator characters
   //
   int prev_sep = 1;
-
+  
+  // keep track of if we are in a string
+  //
+  int in_string = 0;
+  
   // index variable
   //
   int i = 0;
@@ -1191,6 +1217,67 @@ void editorUpdateSyntax(erow *row) {
     //
     unsigned char prev_hl = (i > 0) ? row->hl[i - 1] : HL_NORMAL;
 
+    // if this is a single line comment
+    //
+    if (scs_len && !in_string) {
+
+      // if thi is not the beginning of the row
+      //
+      if (!strncmp(&row->render[i], scs, scs_len)) {
+        memset(&row->hl[i], HL_COMMENT, row->rsize - i);
+        break;
+      }
+    }
+
+    // if the syntax flag is on highlihgt strings
+    //
+    if (E.syntax->flags & HL_HIGHLIGHT_STRINGS) {
+
+      // if currently in a string
+      //
+      if (in_string) {
+
+        // highlight the character
+        //
+        row->hl[i] = HL_STRING;
+
+        // if character is the closing quote
+        // note exit string
+        //
+        if (c == in_string) {
+          in_string = 0;
+        }
+
+        // increment
+        //
+        i++;
+
+        // note that this is a separation character
+        prev_sep = 1;
+        continue;
+      } 
+
+      // if is single or double quote
+      //
+      else {
+        if (c == '"' || c == '\'') {
+
+          // set the end quote
+          //
+          in_string = c;
+
+          // highlihgt as part of string
+          //
+          row->hl[i] = HL_STRING;
+
+          // incremenet
+          //
+          i++;
+          continue;
+        }
+      }
+    }
+    
     // if the syntax flag is on and highlighting numbers flag is on
     //
     if (E.syntax->flags & HL_HIGHLIGHT_NUMBERS) {
@@ -1228,6 +1315,8 @@ int editorSyntaxToColor(int hl) {
   // to the appropriate colors
   //
   switch (hl) {
+    case HL_COMMENT: return 36;
+    case HL_STRING: return 35;
     case HL_NUMBER: return 31;
     case HL_MATCH: return 34;
     default: return 37;
