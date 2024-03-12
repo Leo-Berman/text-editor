@@ -53,12 +53,23 @@
 #define HL_HIGHLIGHT_NUMBERS (1<<0)
 #define HL_HIGHLIGHT_STRINGS (1<<1)
 
+// Python filename extensions
+//
+// char *Python_HL_extensions[] = { ".py", NULL };
+// char *Python_HL_keywords[] = {
+// "def","str","return","if", "while", "elif", "else", "class", "import", "as",
+// "from", "open", "insert", 
+// "for|", "list|", "set|", "append|", "add|", "range|", "len|", NULL
+// };
+
 // C filename extensions
 //
 char *C_HL_extensions[] = { ".c", ".h", ".cpp", NULL };
 char *C_HL_keywords[] = {
   "switch", "if", "while", "for", "break", "continue", "return", "else",
-  "struct", "union", "typedef", "static", "enum", "class", "case",
+  "struct", "union", "typedef", "static", "enum", "class", "case", "#define",
+  "sizeof","#include","atexit","memmove","memcpy","abort","abs","goto","abs",
+  "acos","asctime","asctime_r",
   "int|", "long|", "double|", "float|", "char|", "unsigned|", "signed|",
   "void|", NULL
 };
@@ -1734,14 +1745,14 @@ void editorFind() {
     free(query);
   }
 
-  // if query is null then restore cursor position
-  //
-  else {
-    E.cx = saved_cx;
-    E.cy = saved_cy;
-    E.coloff = saved_coloff;
-    E.rowoff = saved_rowoff;
-  }
+  // // if query is null then restore cursor position
+  // //
+  // else {
+  //   E.cx = saved_cx;
+  //   E.cy = saved_cy;
+  //   E.coloff = saved_coloff;
+  //   E.rowoff = saved_rowoff;
+  // }
 
 }
 
