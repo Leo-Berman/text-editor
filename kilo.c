@@ -56,7 +56,12 @@
 // C filename extensions
 //
 char *C_HL_extensions[] = { ".c", ".h", ".cpp", NULL };
-
+char *C_HL_keywords[] = {
+  "switch", "if", "while", "for", "break", "continue", "return", "else",
+  "struct", "union", "typedef", "static", "enum", "class", "case",
+  "int|", "long|", "double|", "float|", "char|", "unsigned|", "signed|",
+  "void|", NULL
+};
 // number of database entries
 //
 #define HLDB_ENTRIES (sizeof(HLDB) / sizeof(HLDB[0]))
@@ -82,6 +87,9 @@ enum editorKey {
 enum editorHighlight {
   HL_NORMAL = 0,
   HL_COMMENT,
+  HL_MLCOMMENT,
+  HL_KEYWORD1,
+  HL_KEYWORD2,
   HL_STRING,
   HL_NUMBER,
   HL_MATCH
@@ -90,11 +98,13 @@ enum editorHighlight {
 // create a storage object for each row
 //
 typedef struct erow {
+  int idx;
   int size;
   int rsize;
   char *chars;
   char *render;
   unsigned char *hl;
+  int hl_open_comment;
 }erow;
 
 // has 3 sets of flags for interfacing with io
@@ -147,7 +157,10 @@ struct abuf {
 struct editorSyntax {
   char *filetype;
   char **filematch;
+  char **keywords;
   char *singleline_comment_start;
+  char *multiline_comment_start;
+  char *multiline_comment_end;
   int flags;
 };
 
@@ -157,7 +170,8 @@ struct editorSyntax HLDB[] = {
   {
     "c",
     C_HL_extensions,
-    "//",
+    C_HL_keywords,
+    "//", "/*", "*/",
     HL_HIGHLIGHT_NUMBERS | HL_HIGHLIGHT_STRINGS
   },
 };
@@ -517,16 +531,35 @@ void editorDrawRows(struct abuf *ab) {
       // iterate through the row
       //
       for (j = 0; j < len; j++) {
+        
+        // if it is a nonprintable character
+        // print out an inverted question mark
+        if (iscntrl(c[j])) {
 
-        // if it is normal make it white
+          char sym = '?';
+          abAppend(ab, "\x1b[7m", 4);
+          abAppend(ab, &sym, 1);
+          abAppend(ab, "\x1b[m", 3);
+
+          // return to normal
+          //
+          if (current_color != -1) {
+            char buf[16];
+            int clen = snprintf(buf, sizeof(buf), "\x1b[%dm", current_color);
+            abAppend(ab, buf, clen);
+          }
+
+        }
+        
+        // append normal character
         //
-        if (current_color != -1) {
-          if (hl[j] == HL_NORMAL) {
+        else if (hl[j] == HL_NORMAL) {
+          if (current_color != -1) {
             abAppend(ab, "\x1b[39m", 5);
             current_color = -1;
           }
           abAppend(ab, &c[j], 1);
-        } 
+        }
         
         // otherwise make it the appropriate color
         //
@@ -537,8 +570,8 @@ void editorDrawRows(struct abuf *ab) {
             char buf[16];
             int clen = snprintf(buf, sizeof(buf), "\x1b[%dm", color);
             abAppend(ab, buf, clen);
-            abAppend(ab, &c[j], 1);
           }
+          abAppend(ab, &c[j], 1);
         }
       } 
 
@@ -735,6 +768,15 @@ void editorInsertRow(int at, char *s, size_t len) {
   //
   memmove(&E.row[at + 1], &E.row[at], sizeof(erow) * (E.numrows - at));
 
+  // update the index of each row
+  for (int j = at + 1; j <= E.numrows; j++) {
+    E.row[j].idx++;
+  }
+
+  // have the current row index update
+  //
+  E.row[at].idx = at;
+
   // allocate memory to the correct size of rows
   //
   E.row = realloc(E.row, sizeof(erow) * (E.numrows + 1));
@@ -757,10 +799,12 @@ void editorInsertRow(int at, char *s, size_t len) {
 
   // set render information
   // and highlight information
+  // set default comment info
   //
   E.row[at].rsize = 0;
   E.row[at].render = NULL;
   E.row[at].hl = NULL;
+  E.row[at].hl_open_comment = 0;
   editorUpdateRow(&E.row[at]);
   
   // set the number of rows to 0
@@ -934,6 +978,12 @@ void editorDelRow(int at) {
   // to fill the new blank space
   //
   memmove(&E.row[at], &E.row[at + 1], sizeof(erow) * (E.numrows - at - 1));
+
+  // update the index of each row after one is deleted
+  //
+  for (int j = at; j < E.numrows - 1; j++) {
+    E.row[j].idx--;
+  }
 
   // decrement the number of rows
   // and incriment the modification counter
@@ -1185,13 +1235,27 @@ void editorUpdateSyntax(erow *row) {
    return;
   }
 
+  // load in keywords
+  //
+  char **keywords = E.syntax->keywords;
+
   // keep track of single line comment start
   //
   char *scs = E.syntax->singleline_comment_start;
 
+  // multiline comments start and end
+  //
+  char *mcs = E.syntax->multiline_comment_start;
+  char *mce = E.syntax->multiline_comment_end;
+
   // length of single line comment
   //
   int scs_len = scs ? strlen(scs) : 0;
+  
+  // length of multiline comments
+  //
+  int mcs_len = mcs ? strlen(mcs) : 0;
+  int mce_len = mce ? strlen(mce) : 0;
 
   // keep track of separator characters
   //
@@ -1201,6 +1265,10 @@ void editorUpdateSyntax(erow *row) {
   //
   int in_string = 0;
   
+  // keep track of if we are in a ml comment
+  //
+  int in_comment = (row->idx > 0 && E.row[row->idx - 1].hl_open_comment);
+
   // index variable
   //
   int i = 0;
@@ -1219,13 +1287,56 @@ void editorUpdateSyntax(erow *row) {
 
     // if this is a single line comment
     //
-    if (scs_len && !in_string) {
+    if (scs_len && !in_string && !in_comment) {
 
       // if thi is not the beginning of the row
       //
       if (!strncmp(&row->render[i], scs, scs_len)) {
         memset(&row->hl[i], HL_COMMENT, row->rsize - i);
         break;
+      }
+    }
+
+    // if all proper flags are one and we aren't in a string
+    //
+    if (mcs_len && mce_len && !in_string) {
+
+      // if we are within a comment
+      //
+      if (in_comment) {
+
+        // set the character to a multiline comment
+        row->hl[i] = HL_MLCOMMENT;
+
+        // check if at end of multiline comment
+        //
+        if (!strncmp(&row->render[i], mce, mce_len)) {
+
+          // if not highlight the whole comment 
+          //
+          memset(&row->hl[i], HL_MLCOMMENT, mce_len);
+          i += mce_len;
+          in_comment = 0;
+          prev_sep = 1;
+          continue;
+        } 
+        
+        else {
+          i++;
+          continue;
+        }
+      }
+
+      // check if we are at the beginning of a comment
+      // 
+      else if (!strncmp(&row->render[i], mcs, mcs_len)) {
+
+        // if so set the comment to the appropriate color
+        //
+        memset(&row->hl[i], HL_MLCOMMENT, mcs_len);
+        i += mcs_len;
+        in_comment = 1;
+        continue;
       }
     }
 
@@ -1300,6 +1411,59 @@ void editorUpdateSyntax(erow *row) {
         continue;
       }
     }
+
+
+    // if prevous word was a separator
+    //
+    if (prev_sep) {
+
+      // index variable
+      //
+      int j;
+
+      // iterate through keywords
+      //
+      for (j = 0; keywords[j]; j++) {
+
+        // find the length of the keyword
+        //
+        int klen = strlen(keywords[j]);
+
+        // check if extraneous character
+        //
+        int kw2 = keywords[j][klen - 1] == '|';
+
+        // if there is an extraneous char
+        // decrement length of keyword
+        //
+        if (kw2) {
+          klen--;
+        }
+
+        // check if the keyword is at the current position and that it is followed
+        // by a separator character
+        //
+        if (!strncmp(&row->render[i], keywords[j], klen) && is_separator(row->render[i + klen])) {
+
+          // set the memory of the highlight appropriately
+          //
+          memset(&row->hl[i], kw2 ? HL_KEYWORD2 : HL_KEYWORD1, klen);
+          
+          // increment by the keyword length
+          //
+          i += klen;
+          break;
+        }
+      }
+
+      // check to see if it reached end of array
+      //
+      if (keywords[j] != NULL) {
+        prev_sep = 0;
+        continue;
+      }
+    }
+
     // check if the chracter is a separator
     //
     prev_sep = is_separator(c);
@@ -1308,6 +1472,21 @@ void editorUpdateSyntax(erow *row) {
     //
     i++;
   }
+
+  // highlighting of next line won't change if
+  // not in a comment
+  //
+  int changed = (row->hl_open_comment != in_comment);
+  
+  // set open comment to current state of comment
+  //
+  row->hl_open_comment = in_comment;
+
+  // if it is changed and within the file
+  // then update syntax of the row after
+  if (changed && row->idx + 1 < E.numrows) {
+    editorUpdateSyntax(&E.row[row->idx + 1]);
+  }
 }
 int editorSyntaxToColor(int hl) {
 
@@ -1315,7 +1494,10 @@ int editorSyntaxToColor(int hl) {
   // to the appropriate colors
   //
   switch (hl) {
-    case HL_COMMENT: return 36;
+    case HL_COMMENT:
+    case HL_MLCOMMENT: return 36;
+    case HL_KEYWORD1: return 33;
+    case HL_KEYWORD2: return 32;
     case HL_STRING: return 35;
     case HL_NUMBER: return 31;
     case HL_MATCH: return 34;
